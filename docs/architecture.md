@@ -151,6 +151,19 @@
 - 抽象接口 [base.py](../src/image_factory/providers/base.py)
 - 测试用 provider [mock.py](../src/image_factory/providers/mock.py)
 
+### `sd_local`
+
+这是一个特殊执行路径，不走当前通用的 `submit / poll / fetch` provider 抽象。
+
+原因是本地 `StableDiffusion` 项目本身就是批处理器，适合整批交接：
+
+- 导出任务 CSV
+- 调用 `sd_batch`
+- 解析 `manifest.jsonl / failures.jsonl`
+- 回写数据库
+
+对应实现见 [sd_local.py](../src/image_factory/sd_local.py)。
+
 ### `progress`
 
 负责批次级统计：
@@ -309,3 +322,10 @@
 3. 按错误类型做更细的重试决策
 4. 增加运行日志和指标
 5. 增加导出成功/失败清单
+
+对于本地 `StableDiffusion` 路径，下一步建议是：
+
+1. 支持多次连续分片执行同一批次
+2. 支持更完整的运行日志回写
+3. 处理 `num_images > 1` 的结果建模
+4. 支持按模型拆分批次执行

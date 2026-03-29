@@ -154,7 +154,35 @@ class SqliteStorage:
             ).rowcount
         return promoted
 
-    def claim_ready_tasks(self, limit: int, provider: str | None = None) -> list[TaskRecord]:
+    def reset_submitting_tasks(self, provider: str | None = None, batch_id: str | None = None) -> int:
+        now = utc_now_iso()
+        with self.connection:
+            reset = self.connection.execute(
+                """
+                UPDATE tasks
+                SET status = ?, updated_at = ?
+                WHERE status = ?
+                  AND (? IS NULL OR provider = ?)
+                  AND (? IS NULL OR batch_id = ?)
+                """,
+                (
+                    TaskStatus.READY.value,
+                    now,
+                    TaskStatus.SUBMITTING.value,
+                    provider,
+                    provider,
+                    batch_id,
+                    batch_id,
+                ),
+            ).rowcount
+        return reset
+
+    def claim_ready_tasks(
+        self,
+        limit: int,
+        provider: str | None = None,
+        batch_id: str | None = None,
+    ) -> list[TaskRecord]:
         now = utc_now_iso()
         return self._claim_tasks(
             query="""
@@ -162,10 +190,11 @@ class SqliteStorage:
                 FROM tasks
                 WHERE status = ?
                   AND (? IS NULL OR provider = ?)
+                  AND (? IS NULL OR batch_id = ?)
                 ORDER BY id
                 LIMIT ?
             """,
-            query_params=(TaskStatus.READY.value, provider, provider, limit),
+            query_params=(TaskStatus.READY.value, provider, provider, batch_id, batch_id, limit),
             update_status=TaskStatus.SUBMITTING,
             updated_at=now,
             increment_attempt=True,

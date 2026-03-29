@@ -8,6 +8,11 @@ from image_factory.input_loader import load_task_seeds
 from image_factory.progress import build_batch_progress
 from image_factory.providers import build_provider
 from image_factory.scheduler import Scheduler
+from image_factory.sd_local import (
+    StableDiffusionBatchExecutor,
+    StableDiffusionRunOptions,
+    default_python_executable,
+)
 from image_factory.storage import SqliteStorage
 
 
@@ -25,6 +30,8 @@ def main() -> int:
         return _status(args)
     if args.command == "list-tasks":
         return _list_tasks(args)
+    if args.command == "run-sd-local":
+        return _run_sd_local(args)
 
     parser.print_help()
     return 1
@@ -66,6 +73,37 @@ def _build_parser() -> argparse.ArgumentParser:
     list_tasks.add_argument("--db", default="data/image_factory.db")
     list_tasks.add_argument("--batch-id", required=True)
     list_tasks.add_argument("--limit", type=int, default=20)
+
+    run_sd_local = subparsers.add_parser("run-sd-local", help="Run a batch through a local Stable Diffusion project")
+    run_sd_local.add_argument("--db", default="data/image_factory.db")
+    run_sd_local.add_argument("--batch-id", required=True)
+    run_sd_local.add_argument("--provider", default="sd-local")
+    run_sd_local.add_argument("--output-dir", default="outputs")
+    run_sd_local.add_argument("--stable-diffusion-root", required=True)
+    run_sd_local.add_argument("--python-exe")
+    run_sd_local.add_argument("--sd-config")
+    run_sd_local.add_argument("--max-tasks-per-run", type=int, default=100)
+    run_sd_local.add_argument("--max-attempts", type=int, default=4)
+    run_sd_local.add_argument("--retry-delays", default="15,30,60,180")
+    run_sd_local.add_argument("--model")
+    run_sd_local.add_argument("--batch-size", type=int)
+    run_sd_local.add_argument("--sd-max-retries", type=int)
+    run_sd_local.add_argument("--device", choices=["auto", "cuda", "cpu"])
+    run_sd_local.add_argument("--dtype", choices=["float16", "bfloat16", "float32"])
+    run_sd_local.add_argument("--variant")
+    run_sd_local.add_argument("--default-negative-prompt")
+    run_sd_local.add_argument("--default-width", type=int)
+    run_sd_local.add_argument("--default-height", type=int)
+    run_sd_local.add_argument("--default-steps", type=int)
+    run_sd_local.add_argument("--default-guidance-scale", type=float)
+    run_sd_local.add_argument("--default-num-images", type=int)
+    run_sd_local.add_argument("--prompt-template")
+    run_sd_local.add_argument("--attention-slicing", choices=["true", "false"])
+    run_sd_local.add_argument("--vae-tiling", choices=["true", "false"])
+    run_sd_local.add_argument("--skip-existing", choices=["true", "false"], default="false")
+    run_sd_local.add_argument("--cpu-offload", action="store_true")
+    run_sd_local.add_argument("--local-files-only", action="store_true")
+    run_sd_local.add_argument("--enable-xformers", action="store_true")
 
     return parser
 
@@ -162,6 +200,58 @@ def _list_tasks(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_sd_local(args: argparse.Namespace) -> int:
+    storage = SqliteStorage(Path(args.db))
+    try:
+        stable_diffusion_root = Path(args.stable_diffusion_root)
+        options = StableDiffusionRunOptions(
+            batch_id=args.batch_id,
+            provider=args.provider,
+            stable_diffusion_root=stable_diffusion_root,
+            image_factory_output_dir=Path(args.output_dir),
+            python_executable=Path(args.python_exe) if args.python_exe else default_python_executable(stable_diffusion_root),
+            sd_config_path=Path(args.sd_config) if args.sd_config else None,
+            max_tasks_per_run=args.max_tasks_per_run,
+            retry=RetrySettings(
+                max_attempts=args.max_attempts,
+                backoff_seconds=tuple(int(value.strip()) for value in args.retry_delays.split(",") if value.strip()),
+            ),
+            model=args.model,
+            batch_size=args.batch_size,
+            max_retries=args.sd_max_retries,
+            device=args.device,
+            dtype=args.dtype,
+            variant=args.variant,
+            default_negative_prompt=args.default_negative_prompt,
+            default_width=args.default_width,
+            default_height=args.default_height,
+            default_steps=args.default_steps,
+            default_guidance_scale=args.default_guidance_scale,
+            default_num_images=args.default_num_images,
+            prompt_template=args.prompt_template,
+            attention_slicing=_parse_bool_choice(args.attention_slicing),
+            vae_tiling=_parse_bool_choice(args.vae_tiling),
+            skip_existing=_parse_bool_choice(args.skip_existing) or False,
+            cpu_offload=args.cpu_offload,
+            local_files_only=args.local_files_only,
+            enable_xformers=args.enable_xformers,
+        )
+        summary = StableDiffusionBatchExecutor(storage=storage, options=options).run_once()
+    finally:
+        storage.close()
+
+    print(f"batch_id={summary.batch_id}")
+    print(f"run_id={summary.run_id}")
+    print(f"claimed={summary.claimed}")
+    print(f"succeeded={summary.succeeded}")
+    print(f"failed={summary.failed}")
+    print(f"retried={summary.retried}")
+    print(f"return_code={summary.return_code}")
+    if summary.output_dir:
+        print(f"output_dir={summary.output_dir}")
+    return 0
+
+
 def _build_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
     retry_delays = tuple(int(value.strip()) for value in args.retry_delays.split(",") if value.strip())
     return RuntimeSettings(
@@ -178,3 +268,9 @@ def _build_runtime_settings(args: argparse.Namespace) -> RuntimeSettings:
         ),
         retry=RetrySettings(max_attempts=args.max_attempts, backoff_seconds=retry_delays),
     )
+
+
+def _parse_bool_choice(value: str | None) -> bool | None:
+    if value is None:
+        return None
+    return value == "true"

@@ -23,6 +23,7 @@
 - token bucket 限流器
 - retry / dead letter 状态流转
 - `mock provider` 端到端联调能力
+- `sd-local` 本地 Stable Diffusion 批次执行器接入
 
 ## 适用场景
 
@@ -140,6 +141,38 @@ python -m image_factory create-batch --input assets/examples/prompts.jsonl --pro
 python -m image_factory run-worker --provider mock --submit-rpm 60 --poll-rpm 240 --download-rpm 120
 ```
 
+### `run-sd-local`
+
+把一个 `provider=sd-local` 的批次交给本地 `StableDiffusion` 项目执行。
+
+这条命令不会改 `StableDiffusion` 项目本身，而是会：
+
+1. 从数据库里取出一批 `ready` 任务
+2. 导出成 `sd_batch` 可读取的 `CSV`
+3. 调用 `StableDiffusion` 项目的 Python 入口
+4. 解析 `manifest.jsonl` 和 `failures.jsonl`
+5. 回写任务状态和结果路径
+
+示例：
+
+```powershell
+python -m image_factory run-sd-local `
+  --db data/image_factory.db `
+  --batch-id <batch-id> `
+  --stable-diffusion-root E:\workspace\StableDiffusion `
+  --sd-config E:\workspace\StableDiffusion\configs\default.json `
+  --output-dir outputs `
+  --max-tasks-per-run 100
+```
+
+如果不传 `--python-exe`，默认会优先使用：
+
+```text
+E:\workspace\StableDiffusion\.venv\Scripts\python.exe
+```
+
+当前这条接入路径适合本地 GPU 批量出图，不走 HTTP，也不走当前通用 provider 的 `submit/poll/fetch` 三段式接口。
+
 ### `list-batches`
 
 查看批次列表和整体完成进度。
@@ -194,6 +227,12 @@ failed=9
 - `failed`：不可恢复失败
 - `dead_letter`：达到重试上限后进入死信
 
+对于 `sd-local`：
+
+- 执行时任务会先进入 `submitting`
+- 子进程跑完后会被回写为 `succeeded / failed / retry_waiting / dead_letter`
+- 这个接入方式是“整批交接”，不是逐任务远端轮询
+
 ## 当前限制
 
 这是第一版骨架，当前仍然是：
@@ -205,9 +244,12 @@ failed=9
 - 无 webhook
 - 无分布式租约
 - 无多 key 负载均衡
+- `sd-local` 当前按“一次运行一个本地批次”接入
+- `sd-local` 最适合 `num_images=1`；多图变体目前只会保留单条结果路径
 
 ## 文档
 
 - [架构设计](docs/architecture.md)
 - [Provider 接入说明](docs/provider-adapter.md)
+- [Stable Diffusion 本地接入](docs/stable-diffusion-integration.md)
 - [MVP 路线图](docs/mvp-roadmap.md)
