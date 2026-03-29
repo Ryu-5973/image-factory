@@ -23,6 +23,7 @@
 - token bucket 限流器
 - retry / dead letter 状态流转
 - `mock provider` 端到端联调能力
+- `wenxin` 图片生成 API provider
 - `sd-local` 本地 Stable Diffusion 批次执行器接入
 
 ## 适用场景
@@ -141,6 +142,30 @@ python -m image_factory create-batch --input assets/examples/prompts.jsonl --pro
 python -m image_factory run-worker --provider mock --submit-rpm 60 --poll-rpm 240 --download-rpm 120
 ```
 
+如果要跑文心图片 API，先设置环境变量：
+
+```powershell
+$env:QIANFAN_API_KEY = "your_api_key"
+```
+
+然后创建 `provider=wenxin` 的批次，再启动 worker：
+
+```powershell
+python -m image_factory create-batch --input assets/examples/prompts.jsonl --provider wenxin
+python -m image_factory run-worker --provider wenxin --submit-rpm 30 --poll-rpm 120 --download-rpm 60
+```
+
+`wenxin` provider 支持从任务参数透传：
+
+- `negative_prompt`
+- `width` / `height`，内部会映射成最接近的 `aspect_ratio`
+- `aspect_ratio`
+- `resolution`
+- `n`
+- `wenxin_model`
+- `wenxin_type`
+- `image` / `reference_image`
+
 ### `run-sd-local`
 
 把一个 `provider=sd-local` 的批次交给本地 `StableDiffusion` 项目执行。
@@ -251,5 +276,6 @@ failed=9
 
 - [架构设计](docs/architecture.md)
 - [Provider 接入说明](docs/provider-adapter.md)
+- [Wenxin API 接入](docs/wenxin-integration.md)
 - [Stable Diffusion 本地接入](docs/stable-diffusion-integration.md)
 - [MVP 路线图](docs/mvp-roadmap.md)

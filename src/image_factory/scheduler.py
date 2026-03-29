@@ -184,7 +184,7 @@ class Scheduler:
 
         task_dir = self.output_dir / task.batch_id
         task_dir.mkdir(parents=True, exist_ok=True)
-        file_path = task_dir / f"task-{task.id:06d}.{result.file_extension}"
+        file_path = self._result_path(task_dir, task, result.file_extension)
         file_path.write_bytes(result.content)
         metadata = dict(task.remote_metadata)
         metadata.update(result.metadata)
@@ -211,3 +211,16 @@ class Scheduler:
             next_retry_at=next_retry_at,
         )
         summary.retried += 1
+
+    def _result_path(self, task_dir: Path, task: TaskRecord, file_extension: str) -> Path:
+        requested_name = str(task.params.get("filename", "")).strip()
+        stem = _sanitize_filename_stem(Path(requested_name).stem) if requested_name else f"task-{task.id:06d}"
+        candidate = task_dir / f"{stem}.{file_extension}"
+        if not candidate.exists():
+            return candidate
+        return task_dir / f"{stem}-{task.id:06d}.{file_extension}"
+
+
+def _sanitize_filename_stem(value: str) -> str:
+    sanitized = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in value)
+    return sanitized.strip("_") or "image"

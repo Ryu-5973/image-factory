@@ -32,6 +32,7 @@ venv/
 
 # Misc
 tmp/
+.tmp/
 temp/
 __pycache__/
 .pytest_cache/
