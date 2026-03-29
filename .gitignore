@@ -33,3 +33,10 @@ venv/
 # Misc
 tmp/
 temp/
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+data/
+outputs/
+tests/.tmp/
